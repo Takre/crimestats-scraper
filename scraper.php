@@ -39,7 +39,7 @@ if (!$usersResp || !isset($usersResp['users'])) {
 
 $urlM  = $usersResp['url_m'];
 $users = $usersResp['users'];
-echo "Töö '$job': " . count($users) . " kasutajat kontrollitavad.\n";
+echo "Töö '$job': " . count($users) . " kasutajat kontrollitavad. (url_m = '$urlM')\n";
 
 function httpGet(string $url): string {
     $curl = curl_init();
@@ -140,6 +140,9 @@ function parsePlayerPage(string $html, string $username): ?array {
 
 // Käi kõik kasutajad läbi, skreipi crime.ee-lt
 $records = [];
+$debugShown = 0;
+$maxDebug = 3; // mitme esimese ebaõnnestumise kohta näitame diagnostikat
+
 foreach ($users as $u) {
     $username = $u['kasutajanimi'];
     $uname = str_contains($username, ' ') ? str_replace(' ', '+', $username) : $username;
@@ -154,6 +157,14 @@ foreach ($users as $u) {
         echo "  OK: $username\n";
     } else {
         echo "  VAHELE: $username (lehte ei õnnestunud parsida)\n";
+        if ($debugShown < $maxDebug) {
+            $debugShown++;
+            fwrite(STDERR, "--- DEBUG #$debugShown ($username) ---\n");
+            fwrite(STDERR, "URL: $url\n");
+            fwrite(STDERR, "Vastuse pikkus: " . strlen($html) . " baiti\n");
+            fwrite(STDERR, "Esimesed 500 märki:\n" . substr($html, 0, 500) . "\n");
+            fwrite(STDERR, "--- DEBUG #$debugShown LÕPP ---\n");
+        }
     }
 
     sleep(1); // sama viisakusvahe crime.ee vastu, mis vanades skriptides
