@@ -28,15 +28,23 @@ if (!$siteUrl || !$secret) {
 
 function httpGet(string $url): string {
     $curl = curl_init();
+
     curl_setopt($curl, CURLOPT_URL, $url);
     curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($curl, CURLOPT_FOLLOWLOCATION, true);
     curl_setopt($curl, CURLOPT_TIMEOUT, 30);
+
+    // AJUTINE TEST: ära kontrolli SSL-sertifikaati
+    curl_setopt($curl, CURLOPT_SSL_VERIFYPEER, false);
+    curl_setopt($curl, CURLOPT_SSL_VERIFYHOST, 0);
+
     $response = curl_exec($curl);
+
     if ($response === false) {
         fwrite(STDERR, "cURL viga: " . curl_error($curl) . "\n");
         $response = '';
     }
+
     curl_close($curl);
     return $response;
 }
