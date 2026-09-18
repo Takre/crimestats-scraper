@@ -145,7 +145,7 @@ $maxDebug = 3; // mitme esimese ebaõnnestumise kohta näitame diagnostikat
 
 foreach ($users as $u) {
     $username = $u['kasutajanimi'];
-    $uname = str_contains($username, ' ') ? str_replace(' ', '+', $username) : $username;
+    $uname = rawurlencode($username); // nt "Robin Sulg" -> "Robin%20Sulg", mitte "Robin+Sulg"
     $url = "https://www.crime.ee/index.php?a=11&m=$urlM&k=$uname";
 
     $html = httpGet($url);
@@ -162,7 +162,17 @@ foreach ($users as $u) {
             fwrite(STDERR, "--- DEBUG #$debugShown ($username) ---\n");
             fwrite(STDERR, "URL: $url\n");
             fwrite(STDERR, "Vastuse pikkus: " . strlen($html) . " baiti\n");
-            fwrite(STDERR, "Esimesed 500 märki:\n" . substr($html, 0, 500) . "\n");
+            fwrite(STDERR, "Sisaldab '<table': " . (str_contains($html, '<table') ? 'JAH' : 'EI') . "\n");
+            fwrite(STDERR, "Sisaldab 'Vastupidavus': " . (str_contains($html, 'Vastupidavus') ? 'JAH' : 'EI') . "\n");
+            fwrite(STDERR, "Sisaldab 'id=\"app\"' (Vue/SPA märk): " . (str_contains($html, 'id="app"') ? 'JAH' : 'EI') . "\n");
+            fwrite(STDERR, "Sisaldab 'id=\"root\"' (React märk): " . (str_contains($html, 'id="root"') ? 'JAH' : 'EI') . "\n");
+            fwrite(STDERR, "Sisaldab '__NEXT_DATA__' (Next.js märk): " . (str_contains($html, '__NEXT_DATA__') ? 'JAH' : 'EI') . "\n");
+            fwrite(STDERR, "Sisaldab 'login' v6i 'logi sisse': " . (stripos($html, 'login') !== false || stripos($html, 'logi sisse') !== false ? 'JAH' : 'EI') . "\n");
+            fwrite(STDERR, "Sisaldab 'kasutaja ei leitud' v6i 'not found': " . (stripos($html, 'ei leitud') !== false || stripos($html, 'not found') !== false ? 'JAH' : 'EI') . "\n");
+            fwrite(STDERR, "Kasutajanimi ('$username') esineb vastuses: " . (str_contains($html, $username) ? 'JAH' : 'EI') . "\n");
+            // Dumpi kogu HTML faili, et saaksime seda vajadusel täpsemalt uurida
+            @file_put_contents(__DIR__ . "/debug_{$debugShown}_{$username}.html", $html);
+            fwrite(STDERR, "Täisvastus salvestatud: debug_{$debugShown}_{$username}.html\n");
             fwrite(STDERR, "--- DEBUG #$debugShown LÕPP ---\n");
         }
     }
