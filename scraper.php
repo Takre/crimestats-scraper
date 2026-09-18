@@ -32,10 +32,24 @@ function httpGet(string $url): string {
     curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($curl, CURLOPT_FOLLOWLOCATION, true);
     curl_setopt($curl, CURLOPT_TIMEOUT, 30);
+    // InfinityFree (ja paljud teised tasuta hostingud) blokeerivad päringuid,
+    // millel puudub "tavalise brauseri moodi" User-Agent, või näitavad
+    // bot-kaitse vahelehte, mis pole JSON. Ilma selleta tuli GitHub Actionsist
+    // vastuseks HTML/tühi vastus, käsitsi brauserist aga töötas.
+    curl_setopt($curl, CURLOPT_USERAGENT,
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+        . '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36');
+    curl_setopt($curl, CURLOPT_HTTPHEADER, [
+        'Accept: application/json, text/plain, */*',
+    ]);
     $response = curl_exec($curl);
+    $code = curl_getinfo($curl, CURLINFO_HTTP_CODE);
     if ($response === false) {
         fwrite(STDERR, "cURL viga: " . curl_error($curl) . "\n");
         $response = '';
+    } elseif ($code !== 200) {
+        fwrite(STDERR, "HTTP $code vastus URL-ilt $url. Toorvastus (esimesed 500 märki):\n"
+            . substr($response, 0, 500) . "\n");
     }
     curl_close($curl);
     return $response;
@@ -48,6 +62,9 @@ function httpPostForm(string $url, array $fields): array {
     curl_setopt($curl, CURLOPT_POSTFIELDS, $fields);
     curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($curl, CURLOPT_TIMEOUT, 60);
+    curl_setopt($curl, CURLOPT_USERAGENT,
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+        . '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36');
     $response = curl_exec($curl);
     $code = curl_getinfo($curl, CURLINFO_HTTP_CODE);
     curl_close($curl);
@@ -137,10 +154,16 @@ function parsePlayerPage(string $html, string $username): ?array {
 
 // 1. Küsi CrimeStats'ilt, keda selle töö jaoks kontrollida
 $usersUrl = $siteUrl . '/ajax/scrape_get_users.php?job=' . urlencode($job) . '&secret=' . urlencode($secret);
-$usersResp = json_decode(httpGet($usersUrl), true);
+$usersRaw = httpGet($usersUrl);
+$usersResp = json_decode($usersRaw, true);
 
 if (!$usersResp || isset($usersResp['error'])) {
-    fwrite(STDERR, "Kasutajate nimekirja saamine ebaõnnestus: " . ($usersResp['error'] ?? 'tundmatu viga') . "\n");
+    if (isset($usersResp['error'])) {
+        fwrite(STDERR, "Kasutajate nimekirja saamine ebaõnnestus: " . $usersResp['error'] . "\n");
+    } else {
+        fwrite(STDERR, "Kasutajate nimekirja saamine ebaõnnestus: vastus polnud valiidne JSON.\n");
+        fwrite(STDERR, "Toorvastus (esimesed 1000 märki):\n" . substr($usersRaw, 0, 1000) . "\n");
+    }
     exit(1);
 }
 
