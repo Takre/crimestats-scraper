@@ -144,7 +144,7 @@ function parsePlayerPage(string $html, string $username): ?array {
 }
 
 // 1. Küsi CrimeStats'ilt, keda selle töö jaoks kontrollida
-$usersUrl = $siteUrl . '/ajax/scrape_get_users.php?job=' . urlencode($job) . '&secret=' . urlencode($secret);
+$usersUrl = $siteUrl . '/crime3/ajax/scrape_get_users.php?job=' . urlencode($job) . '&secret=' . urlencode($secret);
 $usersResp = json_decode(httpGet($usersUrl), true);
 
 if (!$usersResp || isset($usersResp['error'])) {
@@ -183,7 +183,7 @@ if (empty($records)) {
 }
 
 // 3. Saada tulemused CrimeStats'ile kirjutamiseks
-$submitUrl = $siteUrl . '/ajax/scrape_submit.php';
+$submitUrl = $siteUrl . '/crime3/ajax/scrape_submit.php';
 $result = httpPostForm($submitUrl, [
     'secret'  => $secret,
     'job'     => $job,
