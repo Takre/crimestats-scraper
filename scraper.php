@@ -190,7 +190,7 @@ foreach ($users as $u) {
         }
     }
 
-    usleep(500000);; // sama viisakusvahe crime.ee vastu, mis vanades skriptides
+    usleep(300000);; // sama viisakusvahe crime.ee vastu, mis vanades skriptides
 }
 
 file_put_contents($recordsPath, json_encode($records, JSON_UNESCAPED_UNICODE));
