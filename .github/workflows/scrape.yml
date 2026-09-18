@@ -1,0 +1,27 @@
+name: CrimeStats Scraper
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch: {}   # lubab ka käsitsi "Run workflow" nupust käivitada
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        job: [red, blue, white, white2, w2, green]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: curl, dom, mbstring
+
+      - name: Run scraper (${{ matrix.job }})
+        env:
+          SITE_URL: ${{ secrets.SITE_URL }}
+          SCRAPE_SECRET: ${{ secrets.SCRAPE_SECRET }}
+        run: php scraper.php ${{ matrix.job }}
