@@ -34,18 +34,29 @@ function httpGet(string $url): string {
     curl_setopt($curl, CURLOPT_FOLLOWLOCATION, true);
     curl_setopt($curl, CURLOPT_TIMEOUT, 30);
 
-    // AJUTINE TEST: ära kontrolli SSL-sertifikaati
+    // AJUTINE TEST
     curl_setopt($curl, CURLOPT_SSL_VERIFYPEER, false);
     curl_setopt($curl, CURLOPT_SSL_VERIFYHOST, 0);
 
     $response = curl_exec($curl);
 
+    $error = curl_error($curl);
+    $errno = curl_errno($curl);
+    $code = curl_getinfo($curl, CURLINFO_HTTP_CODE);
+
     if ($response === false) {
-        fwrite(STDERR, "cURL viga: " . curl_error($curl) . "\n");
-        $response = '';
+        fwrite(STDERR, "cURL viga ($errno): $error\n");
     }
 
+    echo "HTTP status: $code\n";
+    echo "URL: $url\n";
+
     curl_close($curl);
+
+    if ($response === false) {
+        return '';
+    }
+
     return $response;
 }
 
