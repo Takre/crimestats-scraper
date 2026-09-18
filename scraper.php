@@ -1,30 +1,45 @@
 <?php
 /**
- * CrimeStats — GitHub Actions skreipimise skript
+ * CrimeStats — GitHub Actions skreipimise skript (crime.ee osa)
  *
- * Käivitatakse: php scraper.php <job>
- * Näiteks:      php scraper.php red
+ * Käivitatakse: php scraper.php <job> <users.json> <records.json>
  *
- * Vajalikud keskkonnamuutujad (GitHub Actions secrets):
- *   SITE_URL      — nt https://crimestatistics.eu
- *   SCRAPE_SECRET — sama väärtus, mis crime3/includes/config.php SCRAPE_SECRET konstant
+ * See skript EI suhtle enam otse crimestatistics.eu ajax-endpointidega —
+ * seda teeb nüüd browser_bridge.mjs (Playwright/headless Chromium), sest
+ * crimestatistics.eu hosting kasutab robotitõrjet, mis nõuab päris
+ * brauserit (JS-i käivitamist). scraper.php tegeleb ainult crime.ee
+ * skreipimisega, mis pole blokeeritud.
  *
- * See skript EI ühendu kunagi otse andmebaasiga (InfinityFree tasuta plaan ei luba
- * väljast andmebaasi ühendust). Kõik käib HTTP kaudu CrimeStats oma ajax-endpointide läbi.
+ * Sisend:  <users.json>   — browser_bridge.mjs "get-users" väljund,
+ *                            sisaldab {"url_m":..., "users":[...]}
+ * Väljund: <records.json> — skreiptud kasutajate andmed, mille
+ *                            browser_bridge.mjs "submit" hiljem saadab
  */
 
-$job = $argv[1] ?? null;
-if (!$job) {
-    fwrite(STDERR, "Kasutus: php scraper.php <job>\n");
+$job         = $argv[1] ?? null;
+$usersPath   = $argv[2] ?? null;
+$recordsPath = $argv[3] ?? null;
+
+if (!$job || !$usersPath || !$recordsPath) {
+    fwrite(STDERR, "Kasutus: php scraper.php <job> <users.json> <records.json>\n");
     exit(1);
 }
 
-$siteUrl = rtrim(getenv('SITE_URL') ?: '', '/');
-$secret  = getenv('SCRAPE_SECRET') ?: '';
-if (!$siteUrl || !$secret) {
-    fwrite(STDERR, "SITE_URL ja SCRAPE_SECRET keskkonnamuutujad peavad olema seatud.\n");
+$usersRaw = file_exists($usersPath) ? file_get_contents($usersPath) : false;
+if ($usersRaw === false) {
+    fwrite(STDERR, "Ei suutnud lugeda kasutajate faili: $usersPath\n");
     exit(1);
 }
+
+$usersResp = json_decode($usersRaw, true);
+if (!$usersResp || !isset($usersResp['users'])) {
+    fwrite(STDERR, "Kasutajate fail ei sisaldanud oodatud JSON-struktuuri.\n");
+    exit(1);
+}
+
+$urlM  = $usersResp['url_m'];
+$users = $usersResp['users'];
+echo "Töö '$job': " . count($users) . " kasutajat kontrollitavad.\n";
 
 function httpGet(string $url): string {
     $curl = curl_init();
@@ -32,49 +47,20 @@ function httpGet(string $url): string {
     curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($curl, CURLOPT_FOLLOWLOCATION, true);
     curl_setopt($curl, CURLOPT_TIMEOUT, 30);
-    // InfinityFree (ja paljud teised tasuta hostingud) blokeerivad päringuid,
-    // millel puudub "tavalise brauseri moodi" User-Agent, või näitavad
-    // bot-kaitse vahelehte, mis pole JSON. Ilma selleta tuli GitHub Actionsist
-    // vastuseks HTML/tühi vastus, käsitsi brauserist aga töötas.
     curl_setopt($curl, CURLOPT_USERAGENT,
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
         . '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36');
-    curl_setopt($curl, CURLOPT_HTTPHEADER, [
-        'Accept: application/json, text/plain, */*',
-    ]);
     $response = curl_exec($curl);
-    $code = curl_getinfo($curl, CURLINFO_HTTP_CODE);
     if ($response === false) {
         fwrite(STDERR, "cURL viga: " . curl_error($curl) . "\n");
         $response = '';
-    } elseif ($code !== 200) {
-        fwrite(STDERR, "HTTP $code vastus URL-ilt $url. Toorvastus (esimesed 500 märki):\n"
-            . substr($response, 0, 500) . "\n");
     }
     curl_close($curl);
     return $response;
 }
 
-function httpPostForm(string $url, array $fields): array {
-    $curl = curl_init();
-    curl_setopt($curl, CURLOPT_URL, $url);
-    curl_setopt($curl, CURLOPT_POST, true);
-    curl_setopt($curl, CURLOPT_POSTFIELDS, $fields);
-    curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($curl, CURLOPT_TIMEOUT, 60);
-    curl_setopt($curl, CURLOPT_USERAGENT,
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
-        . '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36');
-    $response = curl_exec($curl);
-    $code = curl_getinfo($curl, CURLINFO_HTTP_CODE);
-    curl_close($curl);
-    $decoded = json_decode((string)$response, true);
-    return ['code' => $code, 'body' => $decoded, 'raw' => $response];
-}
-
 /**
  * Parsib ühe mängija crime.ee lehe HTML-ist andmed välja.
- * Sama loogika, mis vanades update_*.php skriptides oli.
  */
 function parsePlayerPage(string $html, string $username): ?array {
     $dom = new DOMDocument();
@@ -152,26 +138,7 @@ function parsePlayerPage(string $html, string $username): ?array {
     ];
 }
 
-// 1. Küsi CrimeStats'ilt, keda selle töö jaoks kontrollida
-$usersUrl = $siteUrl . '/ajax/scrape_get_users.php?job=' . urlencode($job) . '&secret=' . urlencode($secret);
-$usersRaw = httpGet($usersUrl);
-$usersResp = json_decode($usersRaw, true);
-
-if (!$usersResp || isset($usersResp['error'])) {
-    if (isset($usersResp['error'])) {
-        fwrite(STDERR, "Kasutajate nimekirja saamine ebaõnnestus: " . $usersResp['error'] . "\n");
-    } else {
-        fwrite(STDERR, "Kasutajate nimekirja saamine ebaõnnestus: vastus polnud valiidne JSON.\n");
-        fwrite(STDERR, "Toorvastus (esimesed 1000 märki):\n" . substr($usersRaw, 0, 1000) . "\n");
-    }
-    exit(1);
-}
-
-$urlM = $usersResp['url_m'];
-$users = $usersResp['users'];
-echo "Töö '$job': " . count($users) . " kasutajat kontrollitavad.\n";
-
-// 2. Käi kõik kasutajad läbi, skreipi crime.ee-lt
+// Käi kõik kasutajad läbi, skreipi crime.ee-lt
 $records = [];
 foreach ($users as $u) {
     $username = $u['kasutajanimi'];
@@ -192,26 +159,5 @@ foreach ($users as $u) {
     sleep(1); // sama viisakusvahe crime.ee vastu, mis vanades skriptides
 }
 
-if (empty($records)) {
-    echo "Ei saadud ühtegi kasutajat töödelda, ei saada midagi.\n";
-    exit(0);
-}
-
-// 3. Saada tulemused CrimeStats'ile kirjutamiseks
-$submitUrl = $siteUrl . '/ajax/scrape_submit.php';
-$result = httpPostForm($submitUrl, [
-    'secret'  => $secret,
-    'job'     => $job,
-    'records' => json_encode($records, JSON_UNESCAPED_UNICODE),
-]);
-
-if ($result['code'] !== 200 || empty($result['body']['success'])) {
-    fwrite(STDERR, "Tulemuste saatmine ebaõnnestus (HTTP {$result['code']}): {$result['raw']}\n");
-    exit(1);
-}
-
-echo "Valmis. Töödeldud: {$result['body']['processed']} / " . count($records) . "\n";
-if (!empty($result['body']['errors'])) {
-    echo "Vigu: " . count($result['body']['errors']) . "\n";
-    foreach ($result['body']['errors'] as $err) echo "  - $err\n";
-}
+file_put_contents($recordsPath, json_encode($records, JSON_UNESCAPED_UNICODE));
+echo "Kirjutatud " . count($records) . " kirjet faili $recordsPath\n";
