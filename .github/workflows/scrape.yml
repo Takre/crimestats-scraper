@@ -2,7 +2,7 @@ name: CrimeStats Scraper
 
 on:
   schedule:
-    - cron: '*/15 * * * *'
+    - cron: '*/30 * * * *'
   workflow_dispatch: {}   # lubab ka käsitsi "Run workflow" nupust käivitada
 
 jobs:
