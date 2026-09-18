@@ -1,0 +1,123 @@
+name: CrimeStats Scraper
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      node_cache: ${{ steps.node_cache.outputs.cache-hit }}
+      php_cache: ${{ steps.php_cache.outputs.cache-hit }}
+      pw_cache: ${{ steps.pw_cache.outputs.cache-hit }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # -------------------------
+      # NODE CACHE
+      # -------------------------
+      - name: Cache Node modules
+        id: node_cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.npm
+            node_modules
+          key: node-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install Node deps
+        if: steps.node_cache.outputs.cache-hit != 'true'
+        run: npm install
+
+      # -------------------------
+      # PHP CACHE
+      # -------------------------
+      - name: Cache PHP
+        id: php_cache
+        uses: actions/cache@v4
+        with:
+          path: /usr/local/lib/php
+          key: php-${{ runner.os }}-8.3
+
+      - name: Setup PHP
+        if: steps.php_cache.outputs.cache-hit != 'true'
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          extensions: curl, dom, mbstring
+
+      # -------------------------
+      # PLAYWRIGHT CACHE
+      # -------------------------
+      - name: Cache Playwright Chromium
+        id: pw_cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: pw-${{ runner.os }}-chromium
+
+      - name: Install Playwright Chromium
+        if: steps.pw_cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+
+  scrape:
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        job: [red, blue, white, white2, w2, green]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Reuse cached Node + PHP + Playwright
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          extensions: curl, dom, mbstring
+
+      - name: Restore Node cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.npm
+            node_modules
+          key: node-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Restore Playwright cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: pw-${{ runner.os }}-chromium
+
+      # -------------------------
+      # 1. Get users list
+      # -------------------------
+      - name: Get users list (${{ matrix.job }})
+        env:
+          SITE_URL: ${{ secrets.SITE_URL }}
+          SCRAPE_SECRET: ${{ secrets.SCRAPE_SECRET }}
+        run: node browser_bridge.mjs get-users "$SITE_URL" "$SCRAPE_SECRET" "${{ matrix.job }}" > users.json
+
+      # -------------------------
+      # 2. Scrape crime.ee
+      # -------------------------
+      - name: Scrape crime.ee (${{ matrix.job }})
+        run: php scraper.php "${{ matrix.job }}" users.json records.json
+
+      # -------------------------
+      # 3. Submit results
+      # -------------------------
+      - name: Submit results (${{ matrix.job }})
+        env:
+          SITE_URL: ${{ secrets.SITE_URL }}
+          SCRAPE_SECRET: ${{ secrets.SCRAPE_SECRET }}
+        run: node browser_bridge.mjs submit "$SITE_URL" "$SCRAPE_SECRET" "${{ matrix.job }}" records.json
