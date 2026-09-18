@@ -39,6 +39,19 @@ if (!$usersResp || !isset($usersResp['users'])) {
 
 $urlM  = $usersResp['url_m'];
 $users = $usersResp['users'];
+
+// crime.ee kasutab "roheline" ja "must" maailmade jaoks URL-is erinevaid
+// termineid (world1 / world2) võrreldes teiste maailmadega (mis kasutavad
+// värvinimesid nagu "punane", "sinine" jne). CrimeStats API tagastab
+// url_m väljal värvinime ka nende jaoks, seega parandame selle siin ise.
+$urlMOverrides = [
+    'green' => 'world1', // roheline
+    'w2'    => 'world2', // must
+];
+if (isset($urlMOverrides[$job])) {
+    $urlM = $urlMOverrides[$job];
+}
+
 echo "Töö '$job': " . count($users) . " kasutajat kontrollitavad. (url_m = '$urlM')\n";
 
 function httpGet(string $url): string {
