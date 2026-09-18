@@ -19,10 +19,31 @@
 
 import { chromium } from 'playwright';
 
-const [, , mode, siteUrl, secret, jobOrRecordsPath, recordsPathArg] = process.argv;
+const [, , mode, siteUrlRaw, secretRaw, jobOrRecordsPath, recordsPathArg] = process.argv;
 
-if (!mode || !siteUrl || !secret) {
+if (!mode || !siteUrlRaw || !secretRaw) {
     console.error('Kasutus: node browser_bridge.mjs <get-users|submit> <siteUrl> <secret> <job> [records.json]');
+    process.exit(1);
+}
+
+// Eemalda kogemata lisatud tühikud/reavahetused (nt kui secret sisestati
+// GitHubi kliendiliidesesse koos lõpu-reavahetusega).
+let siteUrl = siteUrlRaw.trim().replace(/\/+$/, '');
+const secret = secretRaw.trim();
+
+// Kui SITE_URL secret unustati protokolliga panna (nt "crimestatistics.eu"
+// selle asemel, et "https://crimestatistics.eu"), lisa https:// ise,
+// selle asemel et Playwright'iga kummalise "invalid URL" veaga krahhi teha.
+if (!/^https?:\/\//i.test(siteUrl)) {
+    console.error(`Hoiatus: SITE_URL ("${siteUrlRaw}") ei alanud http(s):// -ga. Kasutan "https://${siteUrl}".`);
+    siteUrl = 'https://' + siteUrl;
+}
+
+try {
+    new URL(siteUrl);
+} catch (e) {
+    console.error(`SITE_URL ("${siteUrlRaw}") pole valiidne URL. Kontrolli GitHub Secrets → SITE_URL väärtust ` +
+        '(peaks olema nt "https://crimestatistics.eu", ilma jutumärkide/tühikute/lõpukaldkriipsuta).');
     process.exit(1);
 }
 
@@ -37,7 +58,13 @@ async function withChallengeSolvedPage(fn) {
     const page = await context.newPage();
 
     // 1. Lahenda JS-väljakutse avalehel (kergem leht kui otse ajax-endpoint)
-    await page.goto(siteUrl + '/', { waitUntil: 'domcontentloaded', timeout: 30000 });
+    try {
+        await page.goto(siteUrl + '/', { waitUntil: 'domcontentloaded', timeout: 30000 });
+    } catch (e) {
+        await browser.close();
+        console.error(`Ei õnnestunud avada saiti ${siteUrl}/ — ${e.message}`);
+        process.exit(1);
+    }
     // Anna JS-väljakutsele aega end lahendada + võimalikule redirectile aega
     try {
         await page.waitForLoadState('networkidle', { timeout: 15000 });
