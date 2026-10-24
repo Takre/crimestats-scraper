@@ -1,0 +1,62 @@
+name: CrimeStats Klikkide skreipimine
+
+on:
+  schedule:
+    - cron: '5 * * * *'   # iga tund 5. minutil (eraldi põhiskreiperi 30min töödest)
+  workflow_dispatch: {}    # käsitsi käivitamiseks ("Run workflow" nupp)
+
+jobs:
+  scrape-clicks:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        job: [red, blue, white, white2, w2, green]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: curl, dom, mbstring
+
+      - name: Install Node deps (Playwright)
+        run: npm install
+
+      - name: Install headless Chromium
+        run: npx playwright install --with-deps chromium
+
+      # 1. Küsi crimestatistics.eu-lt sama töö url_m väärtus (taaskasutame
+      #    olemasolevat scrape_get_users.php endpointi — kasutajate
+      #    nimekirja ennast siin ei vajata, ainult url_m).
+      - name: Get job info (${{ matrix.job }})
+        env:
+          SITE_URL: ${{ secrets.SITE_URL }}
+          SCRAPE_SECRET: ${{ secrets.SCRAPE_SECRET }}
+        run: node browser_bridge.mjs get-users "$SITE_URL" "$SCRAPE_SECRET" "${{ matrix.job }}" > users.json 
+
+      # 2. Loe crime.ee klikkide edetabelit (a=8&top=98) — tavaline cURL,
+      #    seda lehte ei blokeerita.
+      - name: Scrape clicks leaderboard (${{ matrix.job }})
+        run: php clicks_scraper.php "${{ matrix.job }}" users.json clicks.json
+
+      - name: Upload debug HTML (kui tekkis)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-clicks-${{ matrix.job }}
+          path: debug_clicks_*.html
+          if-no-files-found: ignore
+          retention-days: 3
+
+      # 3. Saada klikid crimestatistics.eu-le; seal hoitakse iga
+      #    kasutaja+kalendripäeva kohta suurimat nähtud väärtust.
+      - name: Submit clicks (${{ matrix.job }})
+        env:
+          SITE_URL: ${{ secrets.SITE_URL }}
+          SCRAPE_SECRET: ${{ secrets.SCRAPE_SECRET }}
+        run: node browser_bridge.mjs submit-clicks "$SITE_URL" "$SCRAPE_SECRET" "${{ matrix.job }}" clicks.json
