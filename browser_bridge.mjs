@@ -167,7 +167,61 @@ if (mode === 'get-users') {
     }
     process.exit(0);
 
+} else if (mode === 'submit-clicks') {
+    // Sama mis "submit", aga postitab kliki-andmed eraldi endpointi
+    // ajax/clicks_submit.php, väljaga "clicks" (mitte "records").
+    const recordsPath = recordsPathArg;
+    if (!recordsPath) {
+        console.error('submit-clicks: puudub clicks.json faili tee.');
+        process.exit(1);
+    }
+
+    const fs = await import('node:fs/promises');
+    const clicksJson = await fs.readFile(recordsPath, 'utf8');
+
+    const submitUrl = `${siteUrl}/ajax/clicks_submit.php`;
+
+    const result = await withChallengeSolvedPage(async (page) => {
+        return await page.evaluate(async ({ url, secret, job, clicksJson }) => {
+            const body = new URLSearchParams({ secret, job, clicks: clicksJson });
+            const res = await fetch(url, {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: body.toString(),
+            });
+            const text = await res.text();
+            return { status: res.status, text };
+        }, { url: submitUrl, secret, job, clicksJson });
+    });
+
+    if (result.status !== 200) {
+        console.error(`submit-clicks: HTTP ${result.status}. Vastus (esimesed 500 märki):\n${result.text.slice(0, 500)}`);
+        process.exit(1);
+    }
+
+    let parsed;
+    try {
+        parsed = JSON.parse(result.text);
+    } catch (e) {
+        console.error('submit-clicks: vastus polnud valiidne JSON. Toorvastus (esimesed 500 märki):');
+        console.error(result.text.slice(0, 500));
+        process.exit(1);
+    }
+
+    if (!parsed.success) {
+        console.error('submit-clicks: ebaõnnestus: ' + JSON.stringify(parsed));
+        process.exit(1);
+    }
+
+    console.log(`Valmis (${parsed.kuupaev}). Töödeldud: ${parsed.processed}, vahele jäetud: ${parsed.skipped}`);
+    if (parsed.errors && parsed.errors.length) {
+        console.log(`Hoiatusi: ${parsed.errors.length}`);
+        for (const err of parsed.errors) console.log('  - ' + err);
+    }
+    process.exit(0);
+
 } else {
-    console.error('Tundmatu režiim: ' + mode + ' (oota "get-users" või "submit")');
+    console.error('Tundmatu režiim: ' + mode + ' (oota "get-users", "submit" või "submit-clicks")');
     process.exit(1);
 }
